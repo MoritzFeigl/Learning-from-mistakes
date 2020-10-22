@@ -6,8 +6,28 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error
 
+def create_lags(x, lag_variables, lag, drop_na=True):
+    """ Builds a new DataFrame with additional lagged features """
+    lag_x = x[lag_variables]
+    if type(lag_x) is pd.DataFrame:
+        new_dict = {}
+        for col_name in lag_x:
+            new_dict[col_name] = lag_x[col_name]
+            # create lagged Series
+            for l in range(1, lag + 1):
+                new_dict['%s_lag%d' % (col_name, l)] = lag_x[col_name].shift(l)
+        lagged_x = pd.DataFrame(new_dict, index=lag_x.index)
+    else:
+        the_range = range(lag + 1)
+        lagged_x = pd.concat([lag_x.shift(i) for i in the_range], axis=1)
+        lagged_x.columns = ['lag_%d' % i for i in the_range]
+    x_without_lag_vars = x.drop(columns=lag_variables)
+    x_with_lags = pd.concat([x_without_lag_vars, lagged_x], axis=1)
+    if drop_na:
+        x_with_lags = x_with_lags.dropna()
+    return (x_with_lags)
 
-def load_preprocess_data(days_for_validation, random_validation=False, seed=None):
+def load_preprocess_data(days_for_validation, random_validation=False, seed=None, lag=6, overwrite=False):
     """
     Load and preprocess all data sets for the learning from mistakes project.
     The concatenated data set is stored as csv in processed/data.csv and also returned as DataFrame
@@ -22,7 +42,7 @@ def load_preprocess_data(days_for_validation, random_validation=False, seed=None
     -------
     data: DataFrame containing all preprocessed and concatenated variables
     """
-    if isfile('data/processed/data.csv'):
+    if isfile('data/processed/data.csv') and not overwrite:
         print('Load previously computed data set from "data/preprocessed/data.csv"')
         data = pd.read_csv('data/processed/data.csv')
         x_train = pd.read_csv("data/processed/x_train.csv")
@@ -90,7 +110,9 @@ def load_preprocess_data(days_for_validation, random_validation=False, seed=None
             shuffled_index = np.random.RandomState(seed=seed).permutation(len(cal_val)).tolist()
             cal_val = [cal_val[i] for i in shuffled_index]
         else:
-            cal_val = ["calibration" for x in range(cal_ts)] + ["validation" for x in range(validation_timesteps)]
+            #cal_val = ["calibration" for x in range(cal_ts)] + ["validation" for x in range(validation_timesteps)]
+            cal_val = ["validation" for x in range(validation_timesteps)] + ["calibration" for x in range(cal_ts)]
+
         data['calibration_validation'] = pd.Series(cal_val, index=data.index)
         # Compute residual columns
         for point in measurement_points["Distance (m)"]:
@@ -102,6 +124,17 @@ def load_preprocess_data(days_for_validation, random_validation=False, seed=None
         print('Finished preprocessing. Final data set is stored in "data/preprocessed/data.csv"')
         data['sin_hour'] = np.sin(2 * np.pi * data.Hour / 24)
         data['cos_hour'] = np.cos(2 * np.pi * data.Hour / 24)
+
+        # create lagged features
+        lag_variables = ['Shortwave Radiation (W/m2)',
+                         'Air Temperature (deg C)',
+                         'Relative Humidity (%)',
+                         'Wind Speed (m/s)',
+                         'Longwave radiation',
+                         'Precip (mm)',
+                         'Discharge (m3/s)',
+                         'Tree Temp']
+        data = create_lags(data, lag_variables, lag)
         data.to_csv("data/processed/data.csv", index_label=False)
         # Data for ML models
         model_variables = ['sin_hour', 'cos_hour',
@@ -219,29 +252,52 @@ def eda_plots(data, model_variables, point):
     sns.set_context("notebook", font_scale=1.5)
     plot_data_all_aug = data.loc[data["Month"] == 8]
     plot_data_aug = plot_data_all_aug[
-        ['wt_predicted_point_' + point, 'wt_observed_point_' + point, 'wt_shading_predicted_point_' + point]]
+        ['wt_observed_point_' + point, 'wt_predicted_point_' + point, 'wt_shading_predicted_point_' + point]]
     plot = plot_data_aug.plot(linewidth=2, legend=False)
-    plot.legend(title='', loc='upper right', labels=['Predicted', 'Observed', 'Shading'])
+    plot.legend(title='', loc='upper right', labels=['Observation', 'Model prediction', 'Shading'])
     rmse = np.sqrt(
         mean_squared_error(plot_data_aug['wt_predicted_point_' + point], plot_data_aug['wt_observed_point_' + point]))
     shading_rmse = np.sqrt(
         mean_squared_error(plot_data_aug['wt_shading_predicted_point_' + point],
                            plot_data_aug['wt_observed_point_' + point]))
     plot.set_title(
-        f'Predicted and observed stream water temperature, RMSE = {rmse:.4}, RMSE shading = {shading_rmse:.4}')
+        f'Predicted and observed stream water temperature, RMSE = {rmse:.4} °C, RMSE shading = {shading_rmse:.4} °C')
+    plot.figure.savefig('results/figures/05_wt_timeseries_August_with_shading.png')
+    plt.close()
+
+    sns.set(rc={'figure.figsize': (24, 7)})
+    sns.set_style("whitegrid")
+    sns.set_context("notebook", font_scale=1.5)
+    plot_data_all_aug = data.loc[data["Month"] == 8]
+    plot_data_all_aug.index = pd.to_datetime(plot_data_all_aug.index)
+    plot_data_aug = plot_data_all_aug[
+        ['wt_observed_point_' + point, 'wt_predicted_point_' + point]]
+    plot = plot_data_aug.plot(linewidth=2, legend=False)
+    plot.legend(title='', loc='upper right', labels=['Observation', 'Model prediction'])
+    plot.set(ylabel='Stream water temperature (°C)')
+
+    rmse = np.sqrt(
+        mean_squared_error(plot_data_aug['wt_predicted_point_' + point], plot_data_aug['wt_observed_point_' + point]))
+    plot.set_title(
+        f'Predicted and observed stream water temperature, RMSE = {rmse:.4} °C')
     plot.figure.savefig('results/figures/05_wt_timeseries_August.png')
 
     # Feature correlation
+    sns.set(rc={'figure.figsize': (23, 21)})
     corr = data[model_variables].corr().round(2)
     # Generate a mask for the upper triangle
     mask = np.triu(np.ones_like(corr, dtype=np.bool))
     # Set up the matplotlib figure
     sns.set_context("notebook", font_scale=1)
-    f, ax = plt.subplots(figsize=(17, 14))
+    #plt.subplots(figsize=(24, 24))
     # Generate a custom diverging colormap
     cmap = sns.diverging_palette(220, 10, as_cmap=True)
     # Draw the heatmap with the mask and correct aspect ratio
-    sns.heatmap(corr, mask=mask, cmap=cmap, center=0, vmin=-1, vmax=1,
-                square=True, linewidths=.5, cbar_kws={"shrink": .5},
+    sns.set(font_scale=1.4)
+    g = sns.heatmap(corr, mask=mask, cmap=cmap, center=0, vmin=-1, vmax=1,
+                square=True, linewidths=.9, cbar_kws={"shrink": .5},
                 annot=True)
+    #g.set_xticklabels(g.get_xmajorticklabels(), fontsize=20)
+    #g.set_yticklabels(g.get_ymajorticklabels(), fontsize=20)
     plt.savefig('results/figures/06_feature_correlation.png')
+    plt.close('all')

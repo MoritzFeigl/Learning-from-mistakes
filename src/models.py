@@ -11,12 +11,16 @@ import pprint
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-
+import shap
+import os
+from sklearn.cluster import AgglomerativeClustering
+import matplotlib.image as img
+import glob
 
 class RegressionModel:
 
-    def __init__(self, x, y):
-        self.x = tools.tools.add_constant(x)
+    def __init__(self, x, y, model_variables):
+        self.x = tools.tools.add_constant(x[model_variables])
         self.y = y
 
     def variance_inflation(self):
@@ -43,28 +47,6 @@ class RegressionModel:
         with open('results/tables/regression_model.csv', 'w') as fh:
             fh.write(results.summary().as_csv())
         print("Saved model summary in results/tables/regression_model.csv")
-
-
-def create_lags(x, lag_variables, lag, drop_na=True):
-    """ Builds a new DataFrame with additional lagged features """
-    lag_x = x[lag_variables]
-    if type(lag_x) is pd.DataFrame:
-        new_dict = {}
-        for col_name in lag_x:
-            new_dict[col_name] = lag_x[col_name]
-            # create lagged Series
-            for l in range(1, lag + 1):
-                new_dict['%s_lag%d' % (col_name, l)] = lag_x[col_name].shift(l)
-        lagged_x = pd.DataFrame(new_dict, index=lag_x.index)
-    else:
-        the_range = range(lag + 1)
-        lagged_x = pd.concat([lag_x.shift(i) for i in the_range], axis=1)
-        lagged_x.columns = ['lag_%d' % i for i in the_range]
-    x_without_lag_vars = x.drop(columns=lag_variables)
-    x_with_lags = pd.concat([x_without_lag_vars, lagged_x], axis=1)
-    if drop_na:
-        x_with_lags = x_with_lags.dropna()
-    return (x_with_lags)
 
 
 # Functions for Bayesian hyperparameter optimization of XGBoost
@@ -144,6 +126,7 @@ def optimize_xgboost(data, targets, init_points, n_iter, n_jobs):
 class XGBoost:
 
     def __init__(self, x_train, y_train, x_val, y_val, x, y, data):
+        self.model_variables = x_train.columns.tolist()
         self.x_train = x_train
         self.y_train = y_train
         self.x_val = x_val
@@ -152,36 +135,27 @@ class XGBoost:
         self.y = y
         self.data = data
 
-    def create_lagged_features(self, lag_variables, lag):
-        """ Creates lagged features for training and validation features """
-        self.x_train = create_lags(self.x_train, lag_variables, lag)
-        self.x_val = create_lags(self.x_val, lag_variables, lag)
-        self.x = create_lags(self.x, lag_variables, lag)
-        self.y_train = self.y_train.iloc[lag:]
-        self.y_val = self.y_val.iloc[lag:]
-        self.y = self.y.iloc[lag:]
-        self.data = self.data.iloc[lag:]
-
-        print("Lagged features where added successfully!")
-
     def hyperpar_optimization(self, init_points, n_iter, n_jobs, model_run_name):
         """ Applies bayesian hyperparameter optimization for XGBoost parameters """
-        random.seed(42)
-        xgboost_opt = optimize_xgboost(self.x_train, self.y_train,
-                                       init_points, n_iter, n_jobs)
-        # save best model parameters
-        with open('models/' + model_run_name + '_optimized_parameter.txt', 'w') as json_file:
-            json.dump(xgboost_opt.max, json_file)
-        print("Optimized model parameters are saved in models/" + model_run_name + "_optimized_parameter.txt")
+        if os.path.isfile("models/" + model_run_name + "_optimized_parameter.txt"):
+            print("Model was already optimized. Choose different model_run_name or load previous optimization results")
+        else:
+            random.seed(42)
+            xgboost_opt = optimize_xgboost(self.x_train, self.y_train,
+                                           init_points, n_iter, n_jobs)
+            # save best model parameters
+            with open('models/' + model_run_name + '_optimized_parameter.txt', 'w') as json_file:
+                json.dump(xgboost_opt.max, json_file)
+            print("Optimized model parameters are saved in models/" + model_run_name + "_optimized_parameter.txt")
 
-        # save full hyperparameter optimization log
-        hyperpar_opt_results = list()
-        for i, iteration in enumerate(xgboost_opt.res):
-            iteration_results_unformated = pd.DataFrame(iteration).transpose()
-            iteration_results = iteration_results_unformated.iloc[1]
-            iteration_results['RMSE'] = -iteration_results_unformated.iloc[0, 0]
-            hyperpar_opt_results.append(iteration_results.to_dict())
-        pd.DataFrame(hyperpar_opt_results).to_csv('models/' + model_run_name + '_hyperpar_search.csv')
+            # save full hyperparameter optimization log
+            hyperpar_opt_results = list()
+            for i, iteration in enumerate(xgboost_opt.res):
+                iteration_results_unformated = pd.DataFrame(iteration).transpose()
+                iteration_results = iteration_results_unformated.iloc[1]
+                iteration_results['RMSE'] = -iteration_results_unformated.iloc[0, 0]
+                hyperpar_opt_results.append(iteration_results.to_dict())
+            pd.DataFrame(hyperpar_opt_results).to_csv('models/' + model_run_name + '_hyperpar_search.csv')
         print("Fully hyperparameter search results are saved in models/" + model_run_name + "_hyperpar_search.csv")
 
     def fit(self, model_run_name):
@@ -211,7 +185,7 @@ class XGBoost:
         rmse = np.sqrt(sklearn.metrics.mean_squared_error(self.y_val, prediction))
         print("Optimized model RMSE in test set: %f" % rmse)
 
-    def plot_prediction(self,  model_run_name):
+    def plot_prediction(self, model_run_name):
         prediction = pd.DataFrame({"prediction": self.model.predict(self.x)})
         prediction.index = self.x.index
 
@@ -219,16 +193,165 @@ class XGBoost:
         plot_data = pd.concat(
             [self.data[['wt_observed_point_640', 'wt_predicted_point_640', 'calibration_validation']],
              xbgoost_predicted_wt], axis=1)
-        sns.set(rc={'figure.figsize': (18, 9)})
+        plot_data.index = pd.to_datetime(plot_data.index)
+        sns.set(rc={'figure.figsize': (24, 7)})
         sns.set_style("whitegrid")
         sns.set_context("notebook", font_scale=1.5)
         plot = plot_data.plot(linewidth=2, legend=False)
         plot.legend(title='', loc='upper right',
-                    labels=['Observed', 'Model predicted', 'Model + residual prediction'])
+                    labels=['Observation', 'Model prediction', 'Model + residual prediction'])
         rmse = np.sqrt(sklearn.metrics.mean_squared_error(xbgoost_predicted_wt, plot_data['wt_observed_point_640']))
-        plot.set_title('Predicted and observed stream water temperature, RMSE: %f' % (rmse))
+        plot.set_title(f'Predicted and observed stream water temperature, RMSE:  {rmse:.4} °C')
         plot.figure.savefig('results/figures/06_XGBoost_prediction_' + model_run_name + '.png')
 
-    def shap(self):
+    def shap_values(self):
         explainer = shap.TreeExplainer(self.model)
-        shap_values = explainer.shap_values(self.x)
+        shap_array = explainer.shap_values(self.x)
+        # aggregate lagged shap values
+        self.shap_values = pd.DataFrame(shap_array)
+        self.shap_values.columns = self.x.columns
+        self.shap_values.index = self.data.index
+        lag_variables = [x for x in self.model_variables if x not in ["sin_hour", "cos_hour"]]
+        self.aggregated_shap_values = pd.DataFrame({"hour":self.shap_values[["sin_hour", "cos_hour"]].sum(axis=1)})
+        for variable in lag_variables:
+            self.aggregated_shap_values[variable] = self.shap_values.filter(regex=(variable + "*")).sum(axis=1)
+        # aggregate hours
+    def plot_variable_importance(self, model_variables_names, n_cluster):
+
+        # define Cluster dummy columns
+        cluster = AgglomerativeClustering(n_clusters=n_cluster, affinity='euclidean', linkage='ward')
+        labels = cluster.fit_predict(self.aggregated_shap_values)
+        dummies = pd.get_dummies(labels)
+        dummies.index = self.y.index
+
+        # get prediction
+        prediction = pd.DataFrame({"prediction": self.model.predict(self.x)})
+        prediction.index = self.data.index
+
+        # define df for plotting
+        plot_data = pd.concat(
+            [prediction["prediction"], self.y, self.aggregated_shap_values, dummies], axis=1)
+        plot_data.index = self.data.index
+        plot_data_timesteps = pd.to_datetime(self.data.index).strftime("%Y-%m-%d")
+        # plot limits for y-axis
+        y_max = np.max([self.y.values.max(), prediction["prediction"].max()])
+        y_min = np.min([self.y.values.min(), prediction["prediction"].min()])
+        # plot in 2 day steps
+        all_days = pd.to_datetime(self.data.index).strftime("%Y-%m-%d").unique()[::2]
+        os.makedirs("results/figures/07_per_day_plots", exist_ok=True)
+        for start_day in all_days:
+            # Loop
+            chosen_dates = pd.date_range(start_day, periods=2).strftime("%Y-%m-%d")
+            sub_plot_data = plot_data.copy()
+            sub_plot_data = sub_plot_data[plot_data_timesteps.isin(chosen_dates)]
+            # plot 1: simple shap values
+            sns.set(rc={'figure.figsize': (23, 9)})
+            sns.set_style("whitegrid")
+            sns.set_context("notebook", font_scale=1)
+            plt.figure()
+            plot = sub_plot_data.iloc[:, 0:2].plot(linestyle='-',
+                                                   use_index=False, linewidth=3, grid=False)
+            sub_plot_data.iloc[:, 2:11].plot(kind="bar", stacked=True, width=0.9,
+                                           use_index=False, ax=plot, grid=False)
+            plot.set(xticklabels=list(pd.to_datetime(sub_plot_data.index).hour))
+            plot.legend(title='', loc='upper right',
+                        labels=["Predicted residuals", 'Model residuals'] + model_variables_names)
+            plot.set_ylim(y_min, y_max)
+            ax = plt.gca()
+            temp = ax.xaxis.get_ticklabels()
+            temp = list(set(temp) - set(temp[::4]))
+            for label in temp:
+                label.set_visible(False)
+            plt.margins(0)
+            ax.set(ylabel='Resiudals/SHAP values')
+            ax.set(xlabel='Hour')
+            os.makedirs("results/figures/07_per_day_plots/" + start_day, exist_ok=True)
+            plt.savefig("results/figures/07_per_day_plots/" + start_day + "/07_influence_" + start_day + '.png')
+            plt.close()
+
+            # plot 2: shap values with clusters
+            sns.set(rc={'figure.figsize': (23, 9)})
+            sns.set_style("whitegrid")
+            sns.set_context("notebook", font_scale=1)
+            plt.figure()
+            ax0 = sub_plot_data.iloc[:, 0:2].plot(linestyle='-',
+                                                  use_index=False, linewidth=3, grid=False, legend=None)
+            ax1 = sub_plot_data.iloc[:, 11:].plot(kind="bar", stacked=True, width=0, sharex=True,
+                                                  use_index=False, alpha=0.3, grid=False, legend=None, ax=ax0, cmap="Set1")
+            ax2 = sub_plot_data.iloc[:, 11:].plot(kind="bar", stacked=True, width=0.9, sharex=True,
+                                                  use_index=False, secondary_y=True, alpha=0.2, grid=False, legend=None,
+                                                  ax=ax0, cmap="Set1")
+            ax3 = sub_plot_data.iloc[:, 2:11].plot(kind="bar", stacked=True, width=0.9, sharex=True,
+                                                   use_index=False, alpha=1, grid=False, legend=None, ax=ax0)
+            ax0.set(ylabel='Resiudals/SHAP values')
+            ax0.set(xlabel='Hour')
+            pal = ["#9b59b6", "#e74c3c", "#34495e", "#2ecc71"]
+            empty_ticks = ["" for x in sub_plot_data.index]
+            empty_y_ticks = ["" for x in sub_plot_data.index]
+            ax1.set(xticklabels=empty_ticks)
+            ax2.set(xticklabels=empty_ticks)
+            ax2.set(yticklabels=["" for y in ax2.yaxis.get_ticklabels()])
+            ax2.tick_params(axis='y', which='both', length=0)
+            ax3.set(xticklabels=empty_ticks)
+            ax0.set(xticklabels=list(pd.to_datetime(sub_plot_data.index).hour))
+            lg = ax3.legend(title='',
+                            labels=["Predicted residuals", "Model residuals"] +
+                                   ["Cluster 1", "Cluster 2", "Cluster 3", "Cluster 4", "Cluster 5"] +
+                                   model_variables_names,
+                            bbox_to_anchor=(1.05, 1.0), loc='upper left', fancybox=True, shadow=True)
+            ax1.set_ylim(y_min, y_max)
+            plt.title("Residuals, shap values and clusters for two days starting on " + start_day, fontsize=20)
+            temp = ax0.xaxis.get_ticklabels()
+            temp = list(set(temp) - set(temp[::4]))
+            for label in temp:
+                label.set_visible(False)
+            plt.margins(0)
+            # ax.set(ylabel='SHAP values')
+            plt.savefig("results/figures/07_per_day_plots/" + start_day + "/07_clustered_influence_" + start_day + '.png',
+                        dpi=300,
+                        format='png',
+                        bbox_extra_artists=(lg,),
+                        bbox_inches='tight'
+                        )
+            plt.close('all')
+            # meteo var plots
+            for v, variable in enumerate(self.model_variables[2:]):
+                variable_data = self.data[pd.to_datetime(self.data.index).strftime("%Y-%m-%d").isin(chosen_dates)]
+                plt.figure(figsize=(15, 3))
+                sns.set_style("whitegrid", {'axes.grid': False})
+                sns.set_context("notebook", font_scale=1, rc={"lines.linewidth": 2})
+                var_plot = sns.lineplot(x=variable_data.index, y=variable, data=variable_data, ci=None)
+                plt.margins(0)
+                var_plot.set(xticklabels=list(pd.to_datetime(sub_plot_data.index).hour))
+                ax = plt.gca()
+                temp = ax.xaxis.get_ticklabels()
+                temp = list(set(temp) - set(temp[::4]))
+                for label in temp:
+                    label.set_visible(False)
+                plt.savefig("results/figures/07_per_day_plots/" + start_day + "/" + model_variables_names[1:][v] + ".png",
+                            dpi=300)
+                plt.close()
+
+            plot_imgs = glob.glob("results/figures/07_per_day_plots/" + start_day + "/*.png")
+            # plot all pngs into one figure
+            fig = plt.figure(figsize=(15, 30))
+            columns = 1
+            rows = 9
+            index = 0
+            for i, path in enumerate(plot_imgs):
+                if (i == 1):
+                    continue
+                else:
+                    index += 1
+                    im = img.imread(path)
+                    ax = fig.add_subplot(rows, columns, index)
+                    plt.imshow(im, cmap=plt.get_cmap("bone"))
+                    ax.grid(False)
+                    ax.tick_params(axis='x', colors=(0, 0, 0, 0))
+                    ax.tick_params(axis='y', colors=(0, 0, 0, 0))
+                    ax.axis("off")
+            plt.savefig("results/figures/07_per_day_plots/" + start_day + ".png", dpi = 800)
+
+
+
+
