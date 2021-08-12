@@ -13,7 +13,6 @@ The code in this repository was used to produce all results in the manuscript. T
 - `src/` contains the entire code (beside the code in the root directory `main.py` file)
 - `model/` contains the XGBoost hyperparameter results and final estimated XGBoost parameters used in this study.  
 
-
 ## Setup to run the code
 
 * 1. Download the data.zip from https://doi.org/10.5281/zenodo.5185399 and extract it to create the Learning-from-mistakes/data folder with all necessary data files.
@@ -24,4 +23,4 @@ The code in this repository was used to produce all results in the manuscript. T
 
 
 ## Licence
-
+[Apache License 2.0](https://github.com/MoritzFeigl/Learning-from-mistakes/blob/master/LICENSE)
