@@ -15,9 +15,9 @@ The code in this repository was used to produce all results in the manuscript. T
 
 ## Setup to run the code
 
-* 1. Download the data.zip from https://doi.org/10.5281/zenodo.5185399 and extract it to create the Learning-from-mistakes/data folder with all necessary data files.
+1. Download the data.zip from https://doi.org/10.5281/zenodo.5185399 and extract it to create the Learning-from-mistakes/data folder with all necessary data files.
 
-* 2. Install all necessary python packages by "pip install -r requirements.txt"
+2. Install all necessary python packages by "pip install -r requirements.txt"
 
 ## Run the code
 
