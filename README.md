@@ -18,8 +18,8 @@ The code in this repository was used to produce all results in the manuscript. T
 1. Download the data.zip from https://doi.org/10.5281/zenodo.5185399 and extract it to create the Learning-from-mistakes/data folder with all necessary data files.
 
 2. Install all necessary python packages from requirements.txt.
-    with pip:
-    Install vi 
+
+    With pip:
     ```
     pip install --user virtualenv
     virtualenv learning_from_mistakes
