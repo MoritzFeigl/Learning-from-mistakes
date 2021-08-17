@@ -9,31 +9,53 @@ from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import re
+from typing import Tuple
 
 
-def load_preprocess_data(days_for_validation, lag_variables, random_validation=False, seed=None, lag=6,
-                         reload=True, save_csv=True):
-    """
-    Load and preprocess all data sets for the learning from mistakes project.
-    The concatenated data set is stored as csv in processed/data.csv and also returned as DataFrame
+def load_preprocess_data(days_for_validation: int,
+                         lag_variables: list,
+                         random_validation: bool = False,
+                         seed: int = None,
+                         lag: int = 8,
+                         reload: bool = True,
+                         save_csv: bool = True) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
+                                                         pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Loading and data preprocessing for the Stream water temperature case study
 
     Parameters
     ----------
-    days_for_validation: int, number of days for validation
-    random_validation: True/False should validation set taken randomly or the end of the time series
-    seed: int, random seed for random validation set creation
+    days_for_validation : int
+        Number of days used for validation
+    lag_variables : list[str]
+        List with variable names that should be lagged
+    random_validation :
+    seed : int
+        Random seed. Only relevant if random_validation=True
+    lag : int
+        number of lagged time steps that are computed for all lag_variables.
+    reload : bool
+        Should a previously computed processed data set be loaded? True/False
+    save_csv : bool
+        Should the preprocessed data be saved as a csv? Necessary if reload=True will be used.
 
     Returns
     -------
-    data: DataFrame containing all preprocessed and concatenated variables
+    Tuple of pd.DataFrames:
+        data : Full preprocessed data set
+        x_train : Training features
+        y_train : Training labels
+        x_test : Test features
+        y_test :
+        x : All features
+        y : All labels
     """
     if isfile('data/processed/data.csv') and reload:
         print('Load previously computed data set from "data/preprocessed/data.csv"')
         data = pd.read_csv('data/processed/data.csv')
         x_train = pd.read_csv("data/processed/x_train.csv")
         y_train = pd.read_csv("data/processed/y_train.csv")
-        x_val = pd.read_csv("data/processed/x_val.csv")
-        y_val = pd.read_csv("data/processed/y_val.csv")
+        x_test = pd.read_csv("data/processed/x_test.csv")
+        y_test = pd.read_csv("data/processed/y_test.csv")
         x = pd.read_csv("data/processed/x.csv")
         y = pd.read_csv("data/processed/y.csv")
     else:
@@ -116,8 +138,8 @@ def load_preprocess_data(days_for_validation, lag_variables, random_validation=F
         y_train = training_data['residuals_point_640']
         # Validation data
         validation_data = data[data["calibration_validation"] == "validation"]
-        x_val = validation_data[model_variables]
-        y_val = validation_data['residuals_point_640']
+        x_test = validation_data[model_variables]
+        y_test = validation_data['residuals_point_640']
         # full dataset x, y
         x = data[model_variables]
         y = data['residuals_point_640']
@@ -126,8 +148,8 @@ def load_preprocess_data(days_for_validation, lag_variables, random_validation=F
             data.to_csv("data/processed/data.csv", index_label=False)
             x_train.to_csv("data/processed/x_train.csv", index_label=False)
             y_train.to_csv("data/processed/y_train.csv", index_label=False)
-            x_val.to_csv("data/processed/x_val.csv", index_label=False)
-            y_val.to_csv("data/processed/y_val.csv", index_label=False)
+            x_test.to_csv("data/processed/x_test.csv", index_label=False)
+            y_test.to_csv("data/processed/y_test.csv", index_label=False)
             x.to_csv("data/processed/x.csv", index_label=False)
             y.to_csv("data/processed/y.csv", index_label=False)
             print('Finished preprocessing. Final data sets are stored in "data/preprocessed/"')
@@ -137,7 +159,7 @@ def load_preprocess_data(days_for_validation, lag_variables, random_validation=F
         validation_data = data[data["calibration_validation"] == "validation"]
         print(f"Training: {training_data.index[0]} - {training_data.index[-1]}")
         print(f"Validation:  {validation_data.index[0]} - {validation_data.index[-1]}")
-    return data, x_train, y_train, x_val, y_val, x, y
+    return data, x_train, y_train, x_test, y_test, x, y
 
 
 def create_lags(x, lag_variables, lag, drop_na=True):
@@ -159,17 +181,16 @@ def create_lags(x, lag_variables, lag, drop_na=True):
     x_with_lags = pd.concat([x_without_lag_vars, lagged_x], axis=1)
     if drop_na:
         x_with_lags = x_with_lags.dropna()
-    return (x_with_lags)
+    return x_with_lags
 
 
-def residual_plots(data):
-    """
-    Descriptive plots for model residuals
-    Plots are saved under results/
+def residual_plots(data: pd.DataFrame):
+    """ Plot HFLUX residuals of stream temperature measurement points
 
     Parameters
     ----------
-    data: data frame
+    data : pd.DataFrame
+        Data produced by load_preprocess_data() including residuals_point_XX columns.
     """
     os.makedirs("results/figures/04_prediction_residuals", exist_ok=True)
     # Residual Histograms
@@ -199,6 +220,8 @@ def residual_plots(data):
                    annot_kws={"size": 15}, vmin=-1, vmax=1, figsize=(15, 12))
     plt.savefig('results/figures/02_residual_corr.png')
     plt.close()
+    print("Correlation plot of stream temperature measurement points is saved "
+          "under results/figures/02_residual_corr.png")
 
     # Autocorrelation of point 640 residuals
     plot = pd.plotting.autocorrelation_plot(data['residuals_point_640'])
@@ -209,8 +232,9 @@ def residual_plots(data):
     for index in ['C', 'V', 'V3']:
         met_data = pd.read_excel('data/raw/Input' + index + '.xlsx', sheet_name="met_data")
         measurement_points = pd.read_excel('data/raw/Input' + index + '.xlsx', sheet_name="temp_t0_data")
-        wt_predicted_sc = pd.read_csv('data/raw/canopy_temp_and_shading_1200-1430-1700_no_calibration/Output' + index + '.csv',
-                                      header=None)  # rows: m of stream, columns: timesteps in min
+        wt_predicted_sc = pd.read_csv(
+            'data/raw/canopy_temp_and_shading_1200-1430-1700_no_calibration/Output' + index + '.csv',
+            header=None)  # rows: m of stream, columns: timesteps in min
         wt_predicted_sc = wt_predicted_sc.iloc[measurement_points["Distance (m)"]]
         wt_predicted_sc = wt_predicted_sc.iloc[:, ::15].transpose()
         wt_predicted_sc.index = met_data.index
@@ -247,18 +271,30 @@ def residual_plots(data):
     plot.figure.savefig('results/figures/04_prediction_residuals/04_residuals_HFLUX_vs_ShadingCanopyTemp.png',
                         bbox_inches='tight', dpi=600)
     plt.close()
+    print("Model residuals of model using new canopy temperature and new shading is saved "
+          "under results/figures/04_prediction_residuals/04_residuals_HFLUX_vs_ShadingCanopyTemp.png")
 
-def data_plots(data, model_variables, point):
-    """
-    Plots of model variables and prediction results
-    Plots are saved under results/
+
+def data_plots(data: pd.DataFrame,
+               model_variables: list,
+               point: str):
+    """Plots of model variables and prediction results
 
     Parameters
     ----------
     data: data frame
     model_variables: list of characters including model variables
     point: measurement point observations which should be used
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Data produced by load_preprocess_data().
+    model_variables : list[str]
+        List of variables used as inputs(i.e. features) for the error ml-model
+    point : str
+        Number of the chosen stream temperature measurement point.
     """
+
     os.makedirs("results/figures/05_prediction_plots", exist_ok=True)
 
     # 1. Plot: Time series of observed and predicted water temperature
@@ -279,6 +315,8 @@ def data_plots(data, model_variables, point):
         f'Predicted and observed stream water temperature, RMSE = {rmse:.3} °C')
     plot.figure.savefig('results/figures/05_prediction_plots/05_observed_vs_HFLUX.png',
                         dpi=600, bbox_inches='tight')
+    print("Plot of Predicted and observed stream water temperature is saved "
+          "under results/figures/05_prediction_plots/05_observed_vs_HFLUX.png")
 
     # 2. Plot:plot 1 + shading & new canopy temperature results
     # get predictions
@@ -286,8 +324,9 @@ def data_plots(data, model_variables, point):
     for index in ['C', 'V', 'V3']:
         met_data = pd.read_excel('data/raw/Input' + index + '.xlsx', sheet_name="met_data")
         measurement_points = pd.read_excel('data/raw/Input' + index + '.xlsx', sheet_name="temp_t0_data")
-        wt_predicted_sc = pd.read_csv('data/raw/canopy_temp_and_shading_1200-1430-1700_no_calibration/Output' + index + '.csv',
-                                      header=None)  # rows: m of stream, columns: timesteps in min
+        wt_predicted_sc = pd.read_csv(
+            'data/raw/canopy_temp_and_shading_1200-1430-1700_no_calibration/Output' + index + '.csv',
+            header=None)  # rows: m of stream, columns: timesteps in min
         wt_predicted_sc = wt_predicted_sc.iloc[measurement_points["Distance (m)"]]
         wt_predicted_sc = wt_predicted_sc.iloc[:, ::15].transpose()
         wt_predicted_sc.index = met_data.index
@@ -329,16 +368,18 @@ def data_plots(data, model_variables, point):
         f'Predicted and observed stream water temperature, RMSE = {rmse:.3} °C, RMSE Shading & Canopy Temperature = {sc_rmse:.3} °C')
     plot.figure.savefig('results/figures/05_prediction_plots/05_HFLUX_vs_ShadingCanopyTemp.png',
                         dpi=600, bbox_inches='tight')
-    plt.close('all')
+    plt.close()
+    print("Plot of Predicted, observed and new shading/canopy temperature stream water temperature is saved "
+          "under results/figures/05_prediction_plots/05_observed_vs_HFLUX.png")
 
     # compute RMSE for nights
     data_sc_hours = pd.concat([data[['Hour', 'wt_observed_point_' + point, 'wt_predicted_point_' + point]],
-                              shading_canopy_data['wt_sc_predicted_point_' + point]], axis=1)
+                               shading_canopy_data['wt_sc_predicted_point_' + point]], axis=1)
     data_sc_night = data_sc_hours[data_sc_hours.Hour.isin([22, 23, 0, 1, 2, 3, 4, 5, 6])]
     rmse_nigth = np.sqrt(mean_squared_error(data_sc_night['wt_predicted_point_' + point],
-                                      data_sc_night['wt_observed_point_' + point]))
+                                            data_sc_night['wt_observed_point_' + point]))
     sc_rmse_nigth = np.sqrt(mean_squared_error(data_sc_night['wt_sc_predicted_point_' + point],
-                                         data_sc_night['wt_observed_point_' + point]))
+                                               data_sc_night['wt_observed_point_' + point]))
     print(f"Night time (22-6) RMSE changed from {rmse_nigth:.3} to {sc_rmse_nigth:.3} "
           f"using new shading and measured canopy temperature")
     # compute RMSE for times of changed shading
@@ -360,11 +401,37 @@ def data_plots(data, model_variables, point):
                    annot_kws={"size": 24}, vmin=-1, vmax=1, figsize=(15, 12))
     plt.savefig('results/figures/06_feature_correlation.png', dpi=600)
     plt.close('all')
+    print("Feature correlation plot is saved "
+          "under results/figures/06_feature_correlation.png")
 
-def create_pca_features(x, x_train, x_val):
+
+def create_pca_features(x: pd.DataFrame,
+                        x_train: pd.DataFrame,
+                        x_test: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """ Compute PCA of given full/training/test data
+    PCA is fitted on the full dataset x and then applied to x, x_train, x_val.
+
+    Parameters
+    ----------
+    x : pd.DataFrame
+        All features
+    x_train : pd.DataFrame
+        Training features
+    x_test : pd.DataFrame
+        Test features
+
+    Returns
+    -------
+     Tuple of pd.DataFrames:
+        x_pca: Principal components of x
+        x_pca_train: Principal components of x_train
+        x_pca_val: Principal components of x_train
+        loadings: Loadings of Principal components
+
+    """
     scaler = StandardScaler()
     scaler.fit(x)
-    x_scaled, x_train_scaled, x_val_scaled = scaler.transform(x), scaler.transform(x_train), scaler.transform(x_val)
+    x_scaled, x_train_scaled, x_test_scaled = scaler.transform(x), scaler.transform(x_train), scaler.transform(x_test)
     # compute PCA
     pca = PCA()
     pca.fit(x_scaled)
@@ -373,7 +440,7 @@ def create_pca_features(x, x_train, x_val):
     # define new x matrices
     x_pca = pd.DataFrame(pca.transform(x_scaled))
     x_pca_train = pd.DataFrame(pca.transform(x_train_scaled))
-    x_pca_val = pd.DataFrame(pca.transform(x_val_scaled))
-    x_pca.index, x_pca_train.index, x_pca_val.index = x.index, x_train.index, x_val.index
+    x_pca_val = pd.DataFrame(pca.transform(x_test_scaled))
+    x_pca.index, x_pca_train.index, x_pca_val.index = x.index, x_train.index, x_test.index
     x_pca.columns = x_pca_train.columns = x_pca_val.columns = pc_names
     return x_pca, x_pca_train, x_pca_val, loadings
