@@ -31,13 +31,17 @@ class RegressionModel:
         self.y = y
 
     def variance_inflation(self):
-        """ Computes variance inflation factor for regressors """
+        """Variance inflation factor for regressors of a linear model
+        Computes variance inflation factor for all regressors.
+        """
         vif = pd.DataFrame({'variables': self.x.columns,
                             'VIF': [out.variance_inflation_factor(self.x.values, i) for i in range(self.x.shape[1])]})
         print(vif)
 
     def center_data(self):
-        """ Centers data to reduce influence of multicollinearity """
+        """ Data centering
+        Centers data to reduce influence of multicollinearity.
+        """
         self.x = self.x.drop(columns='const')
         data_centered = pd.DataFrame(preprocessing.scale(self.x, with_mean='True', with_std='False'))
         data_centered.columns = self.x.columns
@@ -47,7 +51,9 @@ class RegressionModel:
         print("All columns successfully centered!")
 
     def fit(self):
-        """ Fits a OLS regression model of the form y ~ x + intercept"""
+        """ Fit OLS regression model
+        Fits a OLS regression model of the form y ~ x + intercept
+        """
         model = api.OLS(self.y, self.x)
         results = model.fit()
         print(results.summary())
@@ -57,12 +63,58 @@ class RegressionModel:
 
 
 # Functions for Bayesian hyperparameter optimization of XGBoost
-def xgboost_cv(max_depth, gamma, min_child_weight, scale_pos_weight, n_estimators,
-               reg_alpha, reg_lambda, max_delta_step, subsample,
-               colsample_bytree, learning_rate, data, targets, n_jobs):
-    """ XGBoost 5times repeated 5 fold cross validation.
-    Inputs: XGBoost parameters, target labels and feature data
-    Output: CV mean
+def xgboost_cv(max_depth: int,
+               gamma: float,
+               min_child_weight: float,
+               scale_pos_weight: float,
+               n_estimators: int,
+               reg_alpha: float,
+               reg_lambda: float,
+               max_delta_step: float,
+               subsample: float,
+               colsample_bytree: float,
+               learning_rate: float,
+               data: pd.DataFrame,
+               targets: pd.DataFrame,
+               n_jobs: int) -> float:
+    """XGBoost with 5 times repeated 5 fold cross validation.
+
+    Parameters
+    ----------
+    max_depth: int
+        Maximum depth of a tree.
+    gamma: float
+        Minimum loss reduction required to make a further partition on a leaf node of the tree. The larger gamma is,
+        the more conservative the algorithm will be.
+    min_child_weight: float
+        Minimum sum of instance weight (hessian) needed in a child.
+    scale_pos_weight: float
+        Balancing of positive and negative weights.
+    n_estimators: int
+        Number of gradient boosted trees. Equivalent to number of boosting rounds.
+    reg_alpha: float
+        L1 regularization term on weights.
+    reg_lambda: float
+        L2 regularization term on weights
+    max_delta_step: int
+        Maximum delta step we allow each leaf output to be.
+    subsample: float [0,1]
+        Subsample ratio of the training instances.
+    colsample_bytree: float
+        Subsample ratio of columns when constructing each tree.
+    learning_rate: float
+        Boosting learning rate (xgb’s “eta”)
+    data: pd.DataFrame
+        Features (input data) used to train the model.
+    targets: pd.DataFrame
+        Labels used for training.
+    n_jobs: int
+        Number of parallel threads used to run xgboost.
+
+    Returns
+    -------
+    float
+        Mean cross-validation score.
     """
     random.seed(42)
     estimator = XGBRegressor(
@@ -82,11 +134,31 @@ def xgboost_cv(max_depth, gamma, min_child_weight, scale_pos_weight, n_estimator
     return cval.mean()
 
 
-def optimize_xgboost(data, targets, init_points, n_iter, n_jobs):
-    """ Apply Bayesian Optimization to XGBoost parameters and optimized parameters
-    Inputs: feature data, label targets, number of random chosen initial points, number of iterations, number of cpus
-    """
+def optimize_xgboost(data: pd.DataFrame,
+                     targets: pd.DataFrame,
+                     init_points: int,
+                     n_iter: int,
+                     n_jobs: int) -> bayes_opt.bayesian_optimization.BayesianOptimization:
+    """ Bayesian Optimization of XGBoost parameters
 
+    Parameters
+    ----------
+    data: pd.DataFrame
+        Features (input data) used to train the model.
+    targets: pd.DataFrame
+        Labels used for training.
+    init_points: int
+        Number of randomly chosen points at the beginning of the optimization.
+    n_iter: int
+        Number of iterations.
+    n_jobs: int
+        Number of parallel threads used to run xgboost.
+
+    Returns
+    -------
+    bayes_opt.bayesian_optimization.BayesianOptimization
+        The optimizer object.
+    """
     def xgboost_crossval(max_depth, gamma, n_estimators,
                          min_child_weight, scale_pos_weight,
                          reg_alpha, reg_lambda,
@@ -131,6 +203,10 @@ def optimize_xgboost(data, targets, init_points, n_iter, n_jobs):
 
 
 class XGBoost:
+    """XGBoost error-model class
+    Model class including methods for hyperparameter optimization, model fitting, prediction plots,
+    SHAP and PCA SHAP value computation, PCA SHAP value clustering and cluster plots.
+    """
 
     def __init__(self, x_train, y_train, x_test, y_test, x, y, data, model_variables):
         self.model_variables = model_variables
@@ -235,7 +311,16 @@ class XGBoost:
                             bbox_inches='tight', dpi=600)
         plt.close("all")
 
-    def compute_shap_values(self, loadings):
+    def compute_shap_values(self, loadings: pd.DataFrame):
+        """SHAP and PCA SHAP value computations
+
+        Method to compute SHAP and PCA SHAP values for the given XGBoost model.
+
+        Parameters
+        ----------
+        loadings: pd.DataFrame
+            Data frame with PCA loadings used to compute PCA SHAP values.
+        """
         explainer = shap.Explainer(self.model)
         shap_array = explainer.shap_values(self.x)
         # aggregate lagged shap values
@@ -265,17 +350,29 @@ class XGBoost:
             self.aggregated_shap_values[variable] = aggregated_shap_loadings.filter(
                 regex=(variable + "*")).sum(axis=1)
 
+    def cluster_shap_values(self,
+                            chosen_algorithm: str,
+                            chosen_n_cluster: int,
+                            max_clusters: int = 10, min_clusters: int = 3,
+                            kmeans_seed: int = 10):
+        """ Cluster PCA SHAP values
 
-    def plot_shap_dendrogram(self):
-        dend = shc.dendrogram(shc.linkage(self.shap_values, method='complete'))
-        plt.savefig("results/figures/07_clustering/dendrogram_complete")
-        plt.close("all")
-        dend_ = shc.dendrogram(shc.linkage(self.shap_values, method='ward'))
-        plt.savefig("results/figures/07_clustering/dendrogram_ward")
-        plt.close("all")
+        Method to Cluster the PCA SHAP values of the model with three type of clustering algorithms. The
+        "chosen_algorithm" and "chosen_n_cluster" are the final values that will be stored in the model class.
 
-    def cluster_shap_values(self, chosen_algorithm, chosen_n_cluster, max_clusters=10, min_clusters=3,
-                            kmeans_seed=10):
+        Parameters
+        ----------
+        chosen_algorithm: str
+            Chosen cluster algorithm. Can be one of the following: "kmean", "hierarchical_ward", "hierarchical_complete"
+        chosen_n_cluster: int
+            Chosen number of clusters.
+        max_clusters: int
+            Maximum number of clusters that will be used for all clustering algorithms.
+        min_clusters: int
+            Minimum number of clusters that will be used for all clustering algorithms.
+        kmeans_seed: int
+            Random seed used for kmeans.
+        """
         range_n_clusters = range(min_clusters, max_clusters + 1)
         silhouette_scores = {"kmean": dict(),
                              "hierarchical_ward": dict(),
