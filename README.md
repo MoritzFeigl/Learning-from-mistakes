@@ -1,5 +1,5 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.5763568.svg)](https://doi.org/10.5281/zenodo.5763568)
 # Learning from mistakes - Assessing the performance and uncertainty in process-based models
-
 <p align="center">
   <img width="460" src="https://github.com/MoritzFeigl/Learning-from-mistakes/blob/master/learning%20from%20mistakes.png">
 </p>
