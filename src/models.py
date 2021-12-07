@@ -20,8 +20,8 @@ from sklearn.decomposition import PCA
 from math import pi
 import re
 from sklearn.cluster import AgglomerativeClustering
-import scipy.cluster.hierarchy as shc
 import sklearn.preprocessing as preprocessing
+import matplotlib
 
 
 class RegressionModel:
@@ -159,6 +159,7 @@ def optimize_xgboost(data: pd.DataFrame,
     bayes_opt.bayesian_optimization.BayesianOptimization
         The optimizer object.
     """
+
     def xgboost_crossval(max_depth, gamma, n_estimators,
                          min_child_weight, scale_pos_weight,
                          reg_alpha, reg_lambda,
@@ -288,6 +289,7 @@ class XGBoost:
         self.full_rmse = round(np.sqrt(metrics.mean_squared_error(self.y, full_prediction)), 4)
 
         print(f"full RMSE:{self.full_rmse}, train RMSE: {self.train_rmse}, test RMSE: {self.test_rmse}")
+
     def plot_prediction(self, model_run_name):
         prediction = pd.DataFrame({"prediction": self.model.predict(self.x)})
         prediction.index = self.x.index
@@ -342,9 +344,9 @@ class XGBoost:
 
         var_names = list(map(lambda v: re.split('_', v)[0], self.model_variables))
         lag_variables = [x for x in var_names if x not in ["sin", "cos"]]
+        self.model_variables_clean = list(map(lambda v: re.split(' \(', v)[0], lag_variables))
         self.aggregated_shap_values = pd.DataFrame(
             {"hour": aggregated_shap_loadings[["sin_hour", "cos_hour"]].sum(axis=1)})
-        self.model_variables_clean = list(map(lambda v: re.split(' \(', v)[0], lag_variables))
         for variable in self.model_variables_clean:
             # aggregate shap values over lags
             self.aggregated_shap_values[variable] = aggregated_shap_loadings.filter(
@@ -429,7 +431,7 @@ class XGBoost:
                                       facecolor=color, edgecolor=color, alpha=0.7)
 
                     # Label the silhouette plots with their cluster numbers at the middle
-                    ax1.text(-0.05, y_lower + 0.5 * size_cluster_i, str(i+1))
+                    ax1.text(-0.05, y_lower + 0.5 * size_cluster_i, str(i + 1))
 
                     # Compute the new y_lower for next plot
                     y_lower = y_upper + 10  # 10 for the 0 samples
@@ -453,8 +455,8 @@ class XGBoost:
                             c=point_col_array, edgecolor='k')
 
                 ax2.set_title("Clusters shown in Principal components of data")
-                ax2.set_xlabel(f"1st Principal Component ({100*pca.explained_variance_ratio_[0]:.3}%)")
-                ax2.set_ylabel(f"2st Principal Component ({100*pca.explained_variance_ratio_[1]:.3}%)")
+                ax2.set_xlabel(f"1st Principal Component ({100 * pca.explained_variance_ratio_[0]:.3}%)")
+                ax2.set_ylabel(f"2st Principal Component ({100 * pca.explained_variance_ratio_[1]:.3}%)")
 
                 plt.suptitle(f"Silhouette analysis for {cluster_alg[0]} clustering with {n_clusters} clusters",
                              fontsize=14, fontweight='bold')
@@ -476,7 +478,6 @@ class XGBoost:
         print(f"Estimated clusters with {chosen_algorithm} with {self.optimal_n_clusters} clusters.")
 
     def plot_variable_importance(self):
-        # define Cluster dummy columns
         dummies = pd.get_dummies(self.cluster_labels)
         dummies.index = self.y.index
 
@@ -503,7 +504,7 @@ class XGBoost:
         y_min = np.min([self.y.values.min(), prediction["prediction"].min(), shap_min])
 
         data_tmp = self.data.copy()
-        if("Wind Speed (m/s)" in self.data.columns):
+        if "Wind Speed (m/s)" in self.data.columns:
             data_tmp.loc[data_tmp["Wind Speed (m/s)"] > 2.6, "Wind Speed (m/s)"] = np.nan
         var_max = data_tmp[self.model_variables[2:]].max()
         var_min = data_tmp[self.model_variables[2:]].min()
@@ -520,13 +521,33 @@ class XGBoost:
                 var_names[i] = "Hour"
             elif vs == "Longwave radiation":
                 var_names[i] = "Longwave Radiation"
+        # Plot all variables for the first week of the data set
+        chosen_dates = pd.date_range(all_days[0], periods=8).strftime("%Y-%m-%d")
+        for v, variable in enumerate(self.model_variables[2:]):
+            variable_data = self.data[
+                pd.to_datetime(self.data.index).strftime("%Y-%m-%d").isin(chosen_dates)]
+            plt.figure(figsize=(11, 4))
+            sns.set_style("whitegrid", {'axes.grid': True})
+            sns.set_context("notebook", font_scale=1, rc={"lines.linewidth": 2})
+            var_plot = sns.lineplot(data=variable_data, x=pd.to_datetime(variable_data.index), y=variable)  # , ci=None)
+            if variable == 'Air Temperature (deg C)':
+                var_plot.set_ylim(var_min['Tree Temp'], var_max['Tree Temp'])
+            else:
+                var_plot.set_ylim(var_min[variable], var_max[variable])
+            var_plot.tick_params(axis='y', labelsize=20)
+            var_plot.tick_params(axis='x', labelsize=20)
+            plt.savefig("results/figures/08_per_day_plots/Aug8-15example_" +
+                        re.sub("/", "_", self.model_variables[2:][v]) + ".png",
+                        dpi=600, bbox_inches='tight')
+            plt.close()
 
         for start_day in all_days:
             # Loop
             chosen_dates = pd.date_range(start_day, periods=2).strftime("%Y-%m-%d")
             sub_plot_data = plot_data.copy()
             sub_plot_data = sub_plot_data[plot_data_timesteps.isin(chosen_dates)]
-            # plot 1: simple shap values
+
+            # plot simple shap values
             sns.set(rc={'figure.figsize': (23, 9)})
             sns.set_style("whitegrid")
             sns.set_context("notebook", font_scale=1)
@@ -555,7 +576,7 @@ class XGBoost:
                         dpi=600, format='png', bbox_extra_artists=(lg,), bbox_inches='tight')
             plt.close("all")
 
-            # plot 2: shap values with clusters
+            # plot shap values with clusters
             sns.set(rc={'figure.figsize': (23, 9)})
             sns.set_style("whitegrid")
             sns.set_context("notebook", font_scale=1)
@@ -593,7 +614,7 @@ class XGBoost:
                          ["Cluster " + str(x + 1) for x in range(dummies.shape[1])] + \
                          var_names
             lg = ax0.legend(new_handles, new_labels, fontsize=18,
-                       bbox_to_anchor=(1.01, 1.0), loc='upper left', fancybox=True, shadow=True)
+                            bbox_to_anchor=(1.01, 1.0), loc='upper left', fancybox=True, shadow=True)
             ax1.set_ylim(y_min, y_max)
             temp = ax0.xaxis.get_ticklabels()
             temp = list(set(temp) - set(temp[::4]))
@@ -601,31 +622,117 @@ class XGBoost:
                 label.set_visible(False)
             plt.xticks(rotation=0)
             plt.margins(0)
-            plt.savefig("results/figures/08_per_day_plots/" + start_day + "/07_clustered_influence_" + start_day + '.png',
+            plt.savefig(
+                "results/figures/08_per_day_plots/" + start_day + "/07_clustered_influence_" + start_day + '.png',
                 dpi=600, format='png', bbox_extra_artists=(lg,), bbox_inches='tight')
             plt.savefig("results/figures/08_per_day_plots/07_clustered_influence_" + start_day + '.png',
-                dpi=600, format='png', bbox_extra_artists=(lg,), bbox_inches='tight')
+                        dpi=600, format='png', bbox_extra_artists=(lg,), bbox_inches='tight')
             plt.close('all')
-            # meteo var plots
+
+            # input variable plots
             for v, variable in enumerate(self.model_variables[2:]):
                 variable_data = self.data[
                     pd.to_datetime(self.data.index).strftime("%Y-%m-%d").isin(chosen_dates)]
-                plt.figure(figsize=(15, 3))
+                variable_data.index = sub_plot_data.index
+                var_plot_data = pd.concat([sub_plot_data, variable_data[variable]], axis=1)
+                pos_clusters = var_max[variable] * sub_plot_data.iloc[:, index_of_last_var:]
+                neg_clusters = var_min[variable] * sub_plot_data.iloc[:, index_of_last_var:]
+                if variable == 'Air Temperature (deg C)':
+                    pos_clusters = var_max['Tree Temp'] * sub_plot_data.iloc[:, index_of_last_var:]
+                    neg_clusters = var_min['Tree Temp'] * sub_plot_data.iloc[:, index_of_last_var:]
+                my_palette = plt.cm.get_cmap("Set1", dummies.shape[1])
+                my_colors = []
+                for i in range(my_palette.N):
+                    rgba = my_palette(i)
+                    # rgb2hex accepts rgb or rgba
+                    my_colors.append(matplotlib.colors.rgb2hex(rgba))
+                cluster_colors = {"clusterAll": my_colors,
+                                  "cluster1": [my_colors[0], "#ffffff", "#ffffff"],
+                                  "cluster2": ["#ffffff", my_colors[1], "#ffffff"],
+                                  "cluster3": ["#ffffff", "#ffffff", my_colors[2]]}
+                # make plots for each type of cluster coloring
+                for cluster in list(cluster_colors.keys()):
+                    sns.set(rc={'figure.figsize': (23, 4)})
+                    sns.set_style("whitegrid", {'axes.grid': False})
+                    sns.set_context("notebook", font_scale=1, rc={"lines.linewidth": 2})
+                    ax2 = pos_clusters.plot(kind="bar", stacked=True, width=0.9, sharex=True,
+                                            use_index=False, alpha=0.2,
+                                            grid=False, legend=None, color=cluster_colors[cluster])
+                    ax2_neg = neg_clusters.plot(kind="bar", stacked=True, width=0.9, sharex=True,
+                                                use_index=False, alpha=0.2,
+                                                grid=False, legend=None,
+                                                ax=ax2, color=cluster_colors[cluster])
+                    var_plot = variable_data[variable].plot(linestyle='-', color=["black"], use_index=False,
+                                                            linewidth=3, grid=False, legend=None, ax=ax2_neg)
+                    var_plot.set_xticklabels(list(pd.to_datetime(variable_data.index).hour), {"fontsize": 18})
+
+                    handles, labels = var_plot.get_legend_handles_labels()
+                    new_handles = [handles[i] for i in range(len(handles))]
+                    new_labels = ["Canopy Temperature"]  # [variable]
+                    lg = var_plot.legend(new_handles, new_labels, fontsize=18,
+                                         bbox_to_anchor=(1.01, 1.0), loc='upper left', fancybox=True, shadow=True)
+                    temp = var_plot.xaxis.get_ticklabels()
+                    temp = list(set(temp) - set(temp[::4]))
+                    for label in temp:
+                        label.set_visible(False)
+                    var_plot.tick_params(axis='y', labelsize=18)
+                    var_plot.set_ylabel(variable, fontsize=24)
+                    var_plot.set_xlabel('Hour', fontsize=24)
+                    plt.margins(0)
+                    if variable == 'Air Temperature (deg C)':
+                        var_plot.set_ylim(var_min['Tree Temp'], var_max['Tree Temp'])
+                    else:
+                        var_plot.set_ylim(var_min[variable], var_max[variable])
+                    plt.savefig("results/figures/08_per_day_plots/" + start_day + "/" +
+                                re.sub("/", "_", self.model_variables[2:][v]) + "-" + cluster + ".png",
+                                dpi=600, bbox_inches='tight')
+                    plt.close("all")
+
+            # WT Prediction vs. Observation plot
+            prediction = pd.DataFrame({"prediction": self.model.predict(self.x)})
+            prediction.index = self.x.index
+            xbgoost_predicted_wt = self.data['wt_predicted_point_640'] - prediction["prediction"]
+            pred_obs_data = pd.concat(
+                [self.data[['wt_observed_point_640', 'wt_predicted_point_640']],
+                 xbgoost_predicted_wt], axis=1)
+            pred_obs_data = pred_obs_data.rename(columns={0: "ml_prediction"})
+            pred_obs_data.index = pd.to_datetime(pred_obs_data.index)
+            # subset specific day
+            pred_obs_day = pred_obs_data[pred_obs_data.index.strftime("%Y-%m-%d").isin(chosen_dates)]
+
+            # add cluster data
+            pred_obs_day.index = sub_plot_data.index
+            var_plot_data = pd.concat([sub_plot_data, pred_obs_day], axis=1)
+            pos_clusters = (pred_obs_data.max().max() + 0.5) * sub_plot_data.iloc[:, index_of_last_var:]
+
+            # make plots for each type of cluster coloring
+            for cluster in list(cluster_colors.keys()):
+                sns.set(rc={'figure.figsize': (23, 4)})
                 sns.set_style("whitegrid", {'axes.grid': False})
                 sns.set_context("notebook", font_scale=1, rc={"lines.linewidth": 2})
-                var_plot = sns.lineplot(data=variable_data, x=variable_data.index, y=variable, ci=None)
-                ticks = variable_data.index[variable_data.Minute == 0]
-                var_plot.set_xticks(ticks)
-                var_plot.set_xticklabels(variable_data.Hour[::4])
+                ax2 = pos_clusters.plot(kind="bar", stacked=True, width=0.9, sharex=True,
+                                        use_index=False, alpha=0.2,
+                                        grid=False, legend=None, color=cluster_colors[cluster])
+                var_plot = var_plot_data.iloc[:, var_plot_data.shape[1] - 3:var_plot_data.shape[1] + 1].plot(
+                    linewidth=3,
+                    legend=False,
+                    ax=ax2)
+                var_plot.legend(title='', labels=['Observation', 'HFLUX Prediction', 'HFLUX + Error Model'],
+                                fontsize=18, bbox_to_anchor=(1.01, 1.0), loc='upper left', fancybox=True, shadow=True)
+                var_plot.set_xticklabels(list(pd.to_datetime(variable_data.index).hour), {"fontsize": 18})
+                temp = var_plot.xaxis.get_ticklabels()
+                temp = list(set(temp) - set(temp[::4]))
+                for label in temp:
+                    label.set_visible(False)
+                var_plot.tick_params(axis='y', labelsize=18)
+                var_plot.set_ylabel('Stream Temperature (°C)', fontsize=24)
+                var_plot.set_xlabel('Hour', fontsize=24)
                 plt.margins(0)
-                if variable == 'Air Temperature (deg C)':
-                    var_plot.set_ylim(var_min['Tree Temp'], var_max['Tree Temp'])
-                else:
-                    var_plot.set_ylim(var_min[variable], var_max[variable])
+                plt.ylim(pred_obs_data.min().min() + 0.5, pred_obs_data.max().max() + 0.5)
                 plt.savefig("results/figures/08_per_day_plots/" + start_day + "/" +
-                            re.sub("/", "_", self.model_variables[2:][v]) + ".png",
+                            "WT_pred_obs" + "-" + cluster + ".png",
                             dpi=600, bbox_inches='tight')
-                plt.close()
+                plt.close("all")
 
     def plot_cluster_properties(self):
         print("Saving Cluster propeties figures in results/figures/09_Cluster_properties")
@@ -648,8 +755,8 @@ class XGBoost:
         plt.close('all')
         res_col = ["#636161"] + sns.color_palette().as_hex()
         my_pal = {}
-        for l in range(len(transformed_cluster_data.columns) - 1):
-            my_pal[transformed_cluster_data.columns[l]] = res_col[l]
+        for cl in range(len(transformed_cluster_data.columns) - 1):
+            my_pal[transformed_cluster_data.columns[cl]] = res_col[cl]
         for i_cluster in range(self.optimal_n_clusters):
             sns.set(rc={'figure.figsize': (20, 12)})
             sns.set_style("whitegrid")
@@ -753,8 +860,9 @@ class XGBoost:
         residual_cluster_df = pd.concat([pd.DataFrame({"Residuals": self.y.squeeze()}),
                                          self.cluster_df], axis=1)
         residual_cluster_df["positive"] = residual_cluster_df["Residuals"] > 0
-        # boxplots
+        # boxplots & residual densities
         for cluster in range(self.optimal_n_clusters):
+            # boxplot of counts
             ax = sns.countplot(x='positive', data=residual_cluster_df[residual_cluster_df["Cluster"] == cluster],
                                palette=["b", "r"])
             ax.set_xticklabels(["Negative", "Positive"])
@@ -765,3 +873,45 @@ class XGBoost:
             plt.savefig("results/figures/09_Cluster_properties/Cluster_" + str(cluster + 1) + "_residual_signs",
                         dpi=600, bbox_inches='tight')
             plt.close('all')
+            # Resiudals density
+            sns.set(rc={'figure.figsize': (7, 5)})
+            sns.set_style("whitegrid")
+            res_range = [residual_cluster_df.Residuals.min(), residual_cluster_df.Residuals.max()]
+            res_range_max = np.max(np.abs(res_range))
+            ax = sns.distplot(residual_cluster_df.Residuals[residual_cluster_df["Cluster"] == cluster],
+                              kde=True, hist=False, color=my_palette(cluster), kde_kws={"linewidth": 3})
+            ax.set_xlabel("Residuals", fontsize=30)
+            ax.tick_params(axis='x', labelsize=25)
+            ax.tick_params(axis='y', labelsize=25)
+            # fill
+            l1 = ax.lines[0]
+            x1 = l1.get_xydata()[:, 0]
+            y1 = l1.get_xydata()[:, 1]
+            ax.fill_between(x1, y1, color=my_palette(cluster), alpha=0.5)
+            plt.xlim(-res_range_max, res_range_max)
+            plt.tight_layout()
+            plt.savefig("results/figures/09_Cluster_properties/Cluster_" + str(cluster + 1) + "_residual_density",
+                        dpi=600, bbox_inches='tight')
+            plt.close('all')
+
+    def cluster_properties_tables(self):
+        # table of cluster variable values
+        cluster_data = self.cluster_data.copy()
+        cluster_data["Residuals"] = self.y
+        cluster_data["Cluster"] = self.cluster_df
+        cluster_data["temp_diff"] = cluster_data["Tree Temp"] - cluster_data["Air Temperature (deg C)"]
+        cluster_data.to_excel("results/tables/cluster_data.xlsx")
+        median_cluster_values = cluster_data.groupby("Cluster").median().round(2).transpose()
+        median_cluster_values.columns = [f"Cluster {str(x + 1)}" for x in median_cluster_values.columns]
+        median_cluster_values.to_excel("results/tables/median_cluster_values.xlsx")
+
+        # table of median cluster shap values
+        shap_vals = pd.DataFrame(self.aggregated_shap_values)
+        shap_vals["Cluster"] = self.cluster_df
+        shap_vals.to_excel("results/tables/cluster_shap_data.xlsx")
+        median_cluster_shap = shap_vals.groupby('Cluster').median().round(2).transpose()
+        median_cluster_shap.columns = [f"Cluster {str(x + 1)}" for x in median_cluster_shap.columns]
+        median_cluster_shap.to_excel("results/tables/median_shap_values.xlsx")
+
+        # table of loadings
+        self.loadings.to_excel("results/tables/loadings.xlsx")

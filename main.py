@@ -1,8 +1,5 @@
 # Learning from Mistakes
-# Moritz Feigl
-# July 2021
 
-import pandas as pd
 import numpy as np
 from src.utils import load_preprocess_data, residual_plots, data_plots, create_pca_features
 import src.models as models
@@ -21,7 +18,7 @@ lag = 8
 data, x_train, y_train, x_test, y_test, x, y = load_preprocess_data(days_for_validation=5,
                                                                     lag_variables=lag_variables,
                                                                     random_validation=True,
-                                                                    seed=42, lag=lag, reload=True, save_csv=True)
+                                                                    seed=42, lag=lag, reload=True, save_csv=False)
 
 # 2. correlation between stream temperature measurement points
 res_data = data[['residuals_point_45',
@@ -68,20 +65,5 @@ residual_model.plot_variable_importance()
 residual_model.plot_cluster_properties()
 
 # 9. Cluster specific properties
-# table of cluster variable values
-cluster_data = residual_model.cluster_data.copy()
-cluster_data["Residuals"] = y
-cluster_data["Cluster"] = residual_model.cluster_df
-cluster_data["temp_diff"] = cluster_data["Tree Temp"] - cluster_data["Air Temperature (deg C)"]
-cluster_data.to_excel("results/tables/cluster_data.xlsx")
-median_cluster_values = cluster_data.groupby("Cluster").median().round(2).transpose()
-median_cluster_values.columns = [f"Cluster {str(x + 1)}" for x in median_cluster_values.columns]
-median_cluster_values.to_excel("results/tables/median_cluster_values.xlsx")
+residual_model.cluster_properties_tables()
 
-# table of median cluster shap values
-shap_vals = pd.DataFrame(residual_model.aggregated_shap_values)
-shap_vals["Cluster"] = residual_model.cluster_df
-shap_vals.to_excel("results/tables/cluster_shap_data.xlsx")
-median_cluster_shap = shap_vals.groupby('Cluster').median().round(2).transpose()
-median_cluster_shap.columns = [f"Cluster {str(x + 1)}" for x in median_cluster_shap.columns]
-median_cluster_shap.to_excel("results/tables/median_shap_values.xlsx")

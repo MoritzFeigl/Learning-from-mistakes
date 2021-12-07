@@ -439,6 +439,8 @@ def create_pca_features(x: pd.DataFrame,
     loadings = pd.DataFrame(pca.components_.T, columns=pc_names, index=x.columns)
     # define new x matrices
     x_pca = pd.DataFrame(pca.transform(x_scaled))
+    pc_cors = x_pca.corr()
+    print("Maximum correlation between PC trasformed features:", pc_cors.apply(lambda x: max(x[x < 1]), axis=0).max())
     x_pca_train = pd.DataFrame(pca.transform(x_train_scaled))
     x_pca_val = pd.DataFrame(pca.transform(x_test_scaled))
     x_pca.index, x_pca_train.index, x_pca_val.index = x.index, x_train.index, x_test.index
