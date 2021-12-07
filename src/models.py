@@ -345,8 +345,9 @@ class XGBoost:
         var_names = list(map(lambda v: re.split('_', v)[0], self.model_variables))
         lag_variables = [x for x in var_names if x not in ["sin", "cos"]]
         self.model_variables_clean = list(map(lambda v: re.split(' \(', v)[0], lag_variables))
+        nlags = len(aggregated_shap_loadings.filter(regex=(self.model_variables_clean[0] + "*")).columns)
         self.aggregated_shap_values = pd.DataFrame(
-            {"hour": aggregated_shap_loadings[["sin_hour", "cos_hour"]].sum(axis=1)})
+            {"hour": aggregated_shap_loadings[["sin_hour", "cos_hour"]].sum(axis=1)* nlags/2} )
         for variable in self.model_variables_clean:
             # aggregate shap values over lags
             self.aggregated_shap_values[variable] = aggregated_shap_loadings.filter(
