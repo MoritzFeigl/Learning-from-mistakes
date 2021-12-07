@@ -1,4 +1,5 @@
 # Learning from mistakes - Assessing the performance and uncertainty in process-based models
+[![DOI](https://zenodo.org/badge/294649322.svg)](https://zenodo.org/badge/latestdoi/294649322)
 
 <p align="center">
   <img width="460" src="https://github.com/MoritzFeigl/Learning-from-mistakes/blob/master/learning%20from%20mistakes.png">
